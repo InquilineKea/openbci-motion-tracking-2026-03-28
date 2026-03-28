@@ -7,6 +7,7 @@ import math
 import re
 import subprocess
 import time
+from collections import Counter
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -62,6 +63,7 @@ class EegState:
     one_over_f_r2: float | None
     quality: str | None
     artifact_flag: bool
+    eye_state: str | None
 
 
 @dataclass
@@ -82,6 +84,8 @@ class EventResult:
     to_frequency_hz: float | None
     baseline_count: int
     response_count: int
+    baseline_eye_state: str | None
+    response_eye_state: str | None
     baseline_metrics: dict[str, float | None]
     response_metrics: dict[str, float | None]
     delta_metrics: dict[str, float | None]
@@ -98,9 +102,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session-sec", type=float, default=180.0)
     parser.add_argument("--max-events", type=int, default=3)
     parser.add_argument(
+        "--quality-alert-sec",
+        type=float,
+        default=20.0,
+        help="Play a sound if EEG quality stays degraded for at least this long.",
+    )
+    parser.add_argument(
+        "--quality-alert-cooldown-sec",
+        type=float,
+        default=45.0,
+        help="Minimum time between repeated quality alerts while signal remains degraded.",
+    )
+    parser.add_argument("--quality-alert-sound", default="Basso")
+    parser.add_argument(
         "--payload-path",
         type=Path,
         default=Path("/Users/simfish/Documents/GitHub/gaia-hackathon-2026/openbci_live_payload.json"),
+    )
+    parser.add_argument(
+        "--eye-status-path",
+        type=Path,
+        default=Path("/Users/simfish/Documents/GitHub/gaia-hackathon-2026/webcam_eye_status.json"),
     )
     parser.add_argument(
         "--out-dir",
@@ -144,6 +166,10 @@ def slugify(value: str | None, fallback: str = "unknown-track") -> str:
         return fallback
     cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
     return cleaned[:80] or fallback
+
+
+def timestamp_slug(value: str) -> str:
+    return re.sub(r"[^0-9]+", "", value) or "unknown-time"
 
 
 def query_spotify() -> SpotifyState:
@@ -238,7 +264,17 @@ def load_eeg_state(payload_path: Path) -> EegState | None:
         one_over_f_r2=_finite(metrics.get("one_over_f_r2")),
         quality=metrics.get("quality"),
         artifact_flag=bool(metrics.get("artifact_flag")),
+        eye_state=None,
     )
+
+
+def load_eye_state(path: Path) -> str | None:
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        return None
+    value = payload.get("eye_state")
+    return str(value) if value is not None else None
 
 
 def _finite(value: object) -> float | None:
@@ -260,6 +296,14 @@ def summarise_states(states: list[EegState]) -> dict[str, float | None]:
     return summary
 
 
+def dominant_eye_state(states: list[EegState]) -> str | None:
+    labels = [state.eye_state for state in states if state.eye_state]
+    if not labels:
+        return None
+    counts = Counter(labels)
+    return counts.most_common(1)[0][0]
+
+
 def delta_metrics(response: dict[str, float | None], baseline: dict[str, float | None]) -> dict[str, float | None]:
     out: dict[str, float | None] = {}
     for key in list(METRIC_KEYS) + ["artifact_rate"]:
@@ -273,6 +317,20 @@ def fmt(value: float | None, digits: int = 3) -> str:
     if value is None or not math.isfinite(value):
         return "n/a"
     return f"{value:.{digits}f}"
+
+
+def eeg_quality_is_degraded(state: EegState) -> bool:
+    if state.artifact_flag:
+        return True
+    quality = (state.quality or "").strip().lower()
+    return quality not in {"good", "excellent"}
+
+
+def play_sound(name: str) -> None:
+    sound_path = f"/System/Library/Sounds/{name}.aiff"
+    proc = subprocess.run(["afplay", sound_path], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        subprocess.run(["osascript", "-e", "beep 2"], check=False)
 
 
 def make_screenshot(
@@ -323,6 +381,7 @@ def make_screenshot(
         f"From: {event.from_artist or 'n/a'} - {event.from_track or 'n/a'}",
         f"To:   {event.to_artist or 'n/a'} - {event.to_track or 'n/a'}",
         f"Freq: {fmt(event.from_frequency_hz, 1)} Hz -> {fmt(event.to_frequency_hz, 1)} Hz",
+        f"Eyes: {event.baseline_eye_state or 'unknown'} -> {event.response_eye_state or 'unknown'}",
         "",
         f"Baseline samples: {event.baseline_count}",
         f"Response samples: {event.response_count}",
@@ -377,6 +436,8 @@ def build_report(results: list[EventResult], session_sec: float) -> str:
                 f"to_track: {event.to_track or 'n/a'}",
                 f"from_frequency_hz: {fmt(event.from_frequency_hz, 1)}",
                 f"to_frequency_hz: {fmt(event.to_frequency_hz, 1)}",
+                f"baseline_eye_state: {event.baseline_eye_state or 'unknown'}",
+                f"response_eye_state: {event.response_eye_state or 'unknown'}",
                 f"baseline_count: {event.baseline_count}",
                 f"response_count: {event.response_count}",
                 f"screenshot_path: {event.screenshot_path}",
@@ -403,14 +464,39 @@ def main() -> int:
     results: list[EventResult] = []
     last_spotify: SpotifyState | None = None
     last_eeg_updated_at: str | None = None
+    degraded_since: float | None = None
+    last_quality_alert_at: float | None = None
     started = time.monotonic()
 
     while (time.monotonic() - started) < args.session_sec and len(results) < args.max_events:
         spotify = query_spotify()
         eeg = load_eeg_state(args.payload_path)
+        eye_state = load_eye_state(args.eye_status_path)
         if eeg is not None and eeg.updated_at and eeg.updated_at != last_eeg_updated_at:
+            eeg.eye_state = eye_state
             eeg_buffer.append(eeg)
             last_eeg_updated_at = eeg.updated_at
+            now_unix = eeg.unix_time
+            if eeg_quality_is_degraded(eeg):
+                if degraded_since is None:
+                    degraded_since = now_unix
+                alert_due = (
+                    (now_unix - degraded_since) >= args.quality_alert_sec
+                    and (
+                        last_quality_alert_at is None
+                        or (now_unix - last_quality_alert_at) >= args.quality_alert_cooldown_sec
+                    )
+                )
+                if alert_due:
+                    play_sound(args.quality_alert_sound)
+                    print(
+                        f"{eeg.timestamp} quality_alert quality={eeg.quality or 'unknown'} "
+                        f"artifact={'yes' if eeg.artifact_flag else 'no'}",
+                        flush=True,
+                    )
+                    last_quality_alert_at = now_unix
+            else:
+                degraded_since = None
 
         track_changed = (
             last_spotify is not None
@@ -429,6 +515,7 @@ def main() -> int:
             while (time.monotonic() - wait_started) < args.response_sec:
                 eeg_now = load_eeg_state(args.payload_path)
                 if eeg_now is not None and eeg_now.updated_at and eeg_now.updated_at not in response_seen and eeg_now.updated_at != last_eeg_updated_at:
+                    eeg_now.eye_state = load_eye_state(args.eye_status_path)
                     response_samples.append(eeg_now)
                     response_seen.add(eeg_now.updated_at)
                     eeg_buffer.append(eeg_now)
@@ -439,7 +526,8 @@ def main() -> int:
             response_metrics = summarise_states(response_samples)
             deltas = delta_metrics(response_metrics, baseline_metrics)
             track_slug = slugify(spotify.track)
-            screenshot_path = args.out_dir / f"spotify_eeg_event_{len(results) + 1:02d}_{track_slug}.png"
+            time_slug = timestamp_slug(time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(changed_at)))
+            screenshot_path = args.out_dir / f"spotify_eeg_event_{len(results) + 1:02d}_{time_slug}_{track_slug}.png"
             event = EventResult(
                 event_index=len(results) + 1,
                 changed_at=time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(changed_at)),
@@ -457,6 +545,8 @@ def main() -> int:
                 to_frequency_hz=spotify.inferred_frequency_hz,
                 baseline_count=len(baseline_samples),
                 response_count=len(response_samples),
+                baseline_eye_state=dominant_eye_state(baseline_samples),
+                response_eye_state=dominant_eye_state(response_samples),
                 baseline_metrics=baseline_metrics,
                 response_metrics=response_metrics,
                 delta_metrics=deltas,

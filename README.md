@@ -25,6 +25,10 @@ This repo contains the standalone tooling produced on March 28, 2026 for:
 
 ![Spotify EEG response side by side](docs/results/spotify_eeg_event_01_639-hz-frequency_side_by_side.png)
 
+### Additional music change sample
+
+![Spotify EEG response love frequency](docs/results/spotify_eeg_event_01_639-hz-love-frequency.png)
+
 ## Architecture
 
 ```mermaid
@@ -82,6 +86,7 @@ These scripts provide lightweight webcam-based event tagging, coarse gaze tracki
 - `docs/results/`
 
 These scripts watch the Spotify desktop app, log playback events, and capture side-by-side EEG summaries when the soundtrack or nominal frequency changes.
+The continuous monitor also tags each event with dominant eye state (`open` / `closed`) and can play a sound if EEG quality stays degraded too long.
 
 ### Online publishing
 
