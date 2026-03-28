@@ -8,6 +8,7 @@ This repo contains the standalone tooling produced on March 28, 2026 for:
 - a scrolling desktop plot with EEG traces, PSD, and compact band-power history
 - webcam-based motion and hand/object event tagging
 - webcam-based coarse eye tracking and fixation metrics
+- Spotify playback event logging and EEG response capture around track/frequency changes
 - online publishing through a Cloudflare Worker with D1 archival
 
 ## Screenshots
@@ -19,6 +20,10 @@ This repo contains the standalone tooling produced on March 28, 2026 for:
 ### Public spectrum sample
 
 ![OpenBCI spectrum sample](docs/screenshots/spectrum-sample.png)
+
+### Music change response sample
+
+![Spotify EEG response side by side](docs/results/spotify_eeg_event_01_639-hz-frequency_side_by_side.png)
 
 ## Architecture
 
@@ -34,8 +39,11 @@ flowchart LR
     G --> I["D1 archive<br/>snapshots + spectra"]
     J["Webcam event tagger"] --> K["Motion / hand-object tags"]
     L["Webcam eye tracker"] --> M["Gaze + fixation metrics"]
+    N["Spotify desktop app"] --> O["Spotify event logger"]
+    O --> P["Track change / frequency change events"]
     K --> C
     M --> C
+    P --> C
 ```
 
 ## Live Public URLs
@@ -67,6 +75,14 @@ These scripts parse raw Cyton packets directly from serial, compute spectral met
 
 These scripts provide lightweight webcam-based event tagging, coarse gaze tracking, fixation summaries, and simple EEG-motion correlation.
 
+### Spotify response analysis
+
+- `spotify_event_logger.py`
+- `spotify_eeg_change_monitor.py`
+- `docs/results/`
+
+These scripts watch the Spotify desktop app, log playback events, and capture side-by-side EEG summaries when the soundtrack or nominal frequency changes.
+
 ### Online publishing
 
 - `push_openbci_status_online.py`
@@ -93,6 +109,12 @@ Run the webcam eye tracker:
 
 ```bash
 python3.11 webcam_eye_tracker.py --stdout-mode heartbeat
+```
+
+Run the Spotify EEG change monitor:
+
+```bash
+python3.11 spotify_eeg_change_monitor.py --session-sec 180 --baseline-sec 30 --response-sec 30
 ```
 
 Push live status online:
