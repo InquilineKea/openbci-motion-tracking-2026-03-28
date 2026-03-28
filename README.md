@@ -10,6 +10,34 @@ This repo contains the standalone tooling produced on March 28, 2026 for:
 - webcam-based coarse eye tracking and fixation metrics
 - online publishing through a Cloudflare Worker with D1 archival
 
+## Screenshots
+
+### Local EEG dashboard sample
+
+![OpenBCI live dashboard sample](docs/screenshots/eeg-dashboard-sample.png)
+
+### Public spectrum sample
+
+![OpenBCI spectrum sample](docs/screenshots/spectrum-sample.png)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A["OpenBCI Cyton"] --> B["Python serial parser<br/>openbci_cyton_serial_metrics.py"]
+    B --> C["Realtime analyzer<br/>PAF, alpha/theta, gamma/delta, 1/f"]
+    C --> D["Local live plot<br/>matplotlib app"]
+    C --> E["Status + payload files<br/>openbci_live_status.txt<br/>openbci_live_payload.json"]
+    E --> F["Uploader<br/>push_openbci_status_online.py"]
+    F --> G["Cloudflare Worker"]
+    G --> H["Public dashboard + JSON + text"]
+    G --> I["D1 archive<br/>snapshots + spectra"]
+    J["Webcam event tagger"] --> K["Motion / hand-object tags"]
+    L["Webcam eye tracker"] --> M["Gaze + fixation metrics"]
+    K --> C
+    M --> C
+```
+
 ## Live Public URLs
 
 - Live dashboard: [openbci-status-worker.simfish-openbci-live.workers.dev](https://openbci-status-worker.simfish-openbci-live.workers.dev/)
