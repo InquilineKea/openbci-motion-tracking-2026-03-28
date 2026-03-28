@@ -3,10 +3,19 @@
 This repo now includes a Cloudflare Worker that publishes the live OpenBCI
 Cyton stream online and archives each live snapshot into Cloudflare D1.
 
+Public endpoints currently in use:
+
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/`
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/spectrum`
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/live.json`
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/status.txt`
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/history.json?limit=20`
+- `https://openbci-status-worker.simfish-openbci-live.workers.dev/spectra.json?limit=12`
+
 Files:
 
-- `/Users/simfish/Documents/GitHub/gaia-hackathon-2026/openbci_status_worker`
-- `/Users/simfish/Documents/GitHub/gaia-hackathon-2026/push_openbci_status_online.py`
+- `openbci_status_worker/`
+- `push_openbci_status_online.py`
 
 ## Worker behavior
 
@@ -37,7 +46,7 @@ Spectrum archiving:
 Suggested commands:
 
 ```bash
-cd /Users/simfish/Documents/GitHub/gaia-hackathon-2026/openbci_status_worker
+cd openbci_status_worker
 npx wrangler kv namespace create STATUS_KV
 npx wrangler d1 create openbci-archive
 npx wrangler d1 migrations apply openbci-archive --remote
@@ -48,10 +57,9 @@ npx wrangler deploy
 Then run the uploader locally:
 
 ```bash
-cd /Users/simfish/Documents/GitHub/gaia-hackathon-2026
 python3.11 push_openbci_status_online.py \
-  --status-path /Users/simfish/Documents/GitHub/gaia-hackathon-2026/openbci_live_status.txt \
-  --payload-path /Users/simfish/Documents/GitHub/gaia-hackathon-2026/openbci_live_payload.json \
+  --status-path openbci_live_status.txt \
+  --payload-path openbci_live_payload.json \
   --status-url https://<your-worker-domain>/update \
   --live-url https://<your-worker-domain>/live \
   --token <same-token>
