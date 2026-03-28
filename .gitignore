@@ -25,5 +25,6 @@ webcam_eye_status.txt
 spotify_interesting_times.jsonl
 spotify_now_playing_status.json
 spotify_now_playing_status.txt
+spotify_eeg_change_results/
 spotify_eeg_change_summary.json
 spotify_eeg_change_summary.txt
